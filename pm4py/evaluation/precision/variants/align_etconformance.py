@@ -17,9 +17,14 @@
 from multiprocessing import Pool
 from functools import partial
 import multiprocessing
+from typing import List
+from pm4py.objects.log.log import EventLog
 from pm4py.objects import log as log_lib
 from pm4py.evaluation.precision import utils as precision_utils
+from pm4py.evaluation.precision.utils import __search as search
 from pm4py.objects.petri import align_utils as utils
+from pm4py.objects.petri.align_utils import construct_standard_cost_function
+from pm4py.objects.petri.align_utils import SKIP
 from pm4py.objects.petri import check_soundness
 from pm4py.objects.petri.petrinet import Marking
 from pm4py.objects.petri.utils import construct_trace_net
@@ -30,6 +35,7 @@ from pm4py.objects.petri.align_utils import (
 )
 from pm4py.evaluation.precision.parameters import Parameters
 from pm4py.util import exec_utils
+from pm4py.util.exec_utils import get_param_value
 from pm4py.util import xes_constants
 
 
@@ -193,26 +199,10 @@ def transform_markings_from_sync_to_original_net(markings0, net, parameters=None
     return markings
 
 
-def wrapper(trace, net, marking, final_marking, parameters=None):
-    sync_net, sync_initial_marking, sync_final_marking = build_sync_net(
-        trace, net, marking, final_marking, parameters=parameters
+def wrapper(arguments: List):
+    return search(
+        arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], SKIP
     )
-    stop_marking = Marking()
-    for pl, count in sync_final_marking.items():
-        if pl.name[1] == utils.SKIP:
-            stop_marking[pl] = count
-    cost_function = utils.construct_standard_cost_function(sync_net, utils.SKIP)
-
-    # perform the alignment of the prefix
-    res = precision_utils.__search(
-        sync_net,
-        sync_initial_marking,
-        sync_final_marking,
-        stop_marking,
-        cost_function,
-        utils.SKIP,
-    )
-    return res
 
 
 def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameters=None):
@@ -241,17 +231,28 @@ def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameter
     if parameters is None:
         parameters = {}
     align_result = []
-    print("OYOYoYOYoYoYOYO")
-    with Pool(processes=multiprocessing.cpu_count() - 7) as pool:
-        print("CPU COUNT: ", multiprocessing.cpu_count() - 7)
-        partial_func = partial(
-            wrapper,
-            net=net,
-            marking=marking,
-            final_marking=final_marking,
-            parameters=parameters,
+    arguments: List = []
+    for trace in fake_log:
+        sync_net, sync_initial_marking, sync_final_marking = build_sync_net(
+            trace, net, marking, final_marking, parameters=parameters
         )
-        result = pool.map(partial_func, fake_log)
+        stop_marking = Marking()
+        for pl, count in sync_final_marking.items():
+            if pl.name[1] == SKIP:
+                stop_marking[pl] = count
+        cost_function = construct_standard_cost_function(sync_net, SKIP)
+        arguments.append(
+            [
+                sync_net,
+                sync_initial_marking,
+                sync_final_marking,
+                stop_marking,
+                cost_function,
+            ]
+        )
+
+    with Pool(processes=multiprocessing.cpu_count() - 3) as pool:
+        result = pool.map(wrapper, arguments)
         pool.close()
         pool.join()
 
@@ -330,7 +331,7 @@ def build_sync_net(trace, petri_net, initial_marking, final_marking, parameters=
     if parameters is None:
         parameters = {}
 
-    activity_key = exec_utils.get_param_value(
+    activity_key = get_param_value(
         Parameters.ACTIVITY_KEY, parameters, xes_constants.DEFAULT_NAME_KEY
     )
 
