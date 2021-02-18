@@ -272,42 +272,6 @@ def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameter
             # replaying the given prefix, then add None
             align_result.append(None)
 
-    # for i in range(len(fake_log)):
-    #     trace = fake_log[i]
-    #     sync_net, sync_initial_marking, sync_final_marking = build_sync_net(
-    #         trace, net, marking, final_marking, parameters=parameters
-    #     )
-    #     stop_marking = Marking()
-    #     for pl, count in sync_final_marking.items():
-    #         if pl.name[1] == utils.SKIP:
-    #             stop_marking[pl] = count
-    #     cost_function = utils.construct_standard_cost_function(sync_net, utils.SKIP)
-
-    #     # perform the alignment of the prefix
-    #     res = precision_utils.__search(
-    #         sync_net,
-    #         sync_initial_marking,
-    #         sync_final_marking,
-    #         stop_marking,
-    #         cost_function,
-    #         utils.SKIP,
-    #     )
-
-    # if res is not None:
-    #     align_result.append([])
-    #     for mark in res:
-    #         res2 = {}
-    #         for pl in mark:
-    #             # transforms the markings for easier correspondence at the end
-    #             # (distributed engine friendly!)
-    #             res2[(pl.name[0], pl.name[1])] = mark[pl]
-
-    #         align_result[-1].append(res2)
-    # else:
-    #     # if there is no path from the initial marking
-    #     # replaying the given prefix, then add None
-    #     align_result.append(None)
-
     return align_result
 
 
