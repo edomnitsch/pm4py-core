@@ -1,4 +1,4 @@
-'''
+"""
     This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
 
     PM4Py is free software: you can redistribute it and/or modify
@@ -13,8 +13,15 @@
 
     You should have received a copy of the GNU General Public License
     along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
-'''
-from pm4py.algo.conformance.alignments import algorithm as alignments
+"""
+from multiprocessing import Pool
+from functools import partial
+import multiprocessing
+from pm4py.algo.conformance.alignments import algorithm as alignments, variants
+from pm4py.algo.conformance.alignments.algorithm import (
+    DEFAULT_VARIANT,
+    apply as apply_parallel,
+)
 from pm4py.algo.conformance.decomp_alignments import algorithm as decomp_alignments
 from pm4py.evaluation.replay_fitness.parameters import Parameters
 from pm4py.util import exec_utils
@@ -60,7 +67,25 @@ def evaluate(aligned_traces, parameters=None):
     return {"percFitTraces": perc_fit_traces, "averageFitness": average_fitness}
 
 
-def apply(log, petri_net, initial_marking, final_marking, align_variant=alignments.DEFAULT_VARIANT, parameters=None):
+def wrapper(trace, net, initial_marking, final_marking, parameters):
+    return apply_parallel(
+        trace,
+        petri_net=net,
+        initial_marking=initial_marking,
+        final_marking=final_marking,
+        parameters=parameters,
+    )
+
+
+def apply(
+    log,
+    petri_net,
+    initial_marking,
+    final_marking,
+    align_variant=alignments.DEFAULT_VARIANT,
+    parameters=None,
+    pool_size=multiprocessing.cpu_count() - 3,
+):
     """
     Evaluate fitness based on alignments
 
@@ -85,13 +110,40 @@ def apply(log, petri_net, initial_marking, final_marking, align_variant=alignmen
         Containing two keys (percFitTraces and averageFitness)
     """
     if align_variant == decomp_alignments.Variants.RECOMPOS_MAXIMAL.value:
-        alignment_result = decomp_alignments.apply(log, petri_net, initial_marking, final_marking, variant=align_variant, parameters=parameters)
+        alignment_result = decomp_alignments.apply(
+            log,
+            petri_net,
+            initial_marking,
+            final_marking,
+            variant=align_variant,
+            parameters=parameters,
+        )
     else:
-        alignment_result = alignments.apply(log, petri_net, initial_marking, final_marking, variant=align_variant, parameters=parameters)
+        partial_func = partial(
+            wrapper,
+            net=petri_net,
+            initial_marking=initial_marking,
+            final_marking=final_marking,
+            parameters=parameters,
+        )
+        with Pool(processes=pool_size) as pool:
+            alignment_result = pool.map(partial_func, log)
+            pool.close()
+            pool.join()
+        # alignment_result = alignments.apply(
+        #     log,
+        #     petri_net,
+        #     initial_marking,
+        #     final_marking,
+        #     variant=align_variant,
+        #     parameters=parameters,
+        # )
     return evaluate(alignment_result)
 
 
-def apply_trace(trace, petri_net, initial_marking, final_marking, best_worst, activity_key):
+def apply_trace(
+    trace, petri_net, initial_marking, final_marking, best_worst, activity_key
+):
     """
     Performs the basic alignment search, given a trace, a net and the costs of the \"best of the worst\".
     The costs of the best of the worst allows us to deduce the fitness of the trace.
@@ -111,13 +163,24 @@ def apply_trace(trace, petri_net, initial_marking, final_marking, best_worst, ac
     -------
     dictionary: `dict` with keys **alignment**, **cost**, **visited_states**, **queued_states** and **traversed_arcs**
     """
-    alignment = alignments.apply_trace(trace, petri_net, initial_marking, final_marking,
-                                 {Parameters.ACTIVITY_KEY: activity_key})
-    fixed_costs = alignment['cost'] // alignments.utils.STD_MODEL_LOG_MOVE_COST
+    alignment = alignments.apply_trace(
+        trace,
+        petri_net,
+        initial_marking,
+        final_marking,
+        {Parameters.ACTIVITY_KEY: activity_key},
+    )
+    fixed_costs = alignment["cost"] // alignments.utils.STD_MODEL_LOG_MOVE_COST
     if best_worst > 0:
         fitness = 1 - (fixed_costs / best_worst)
     else:
         fitness = 1
-    return {'trace': trace, 'alignment': alignment['alignment'], 'cost': fixed_costs, 'fitness': fitness,
-            'visited_states': alignment['visited_states'], 'queued_states': alignment['queued_states'],
-            'traversed_arcs': alignment['traversed_arcs']}
+    return {
+        "trace": trace,
+        "alignment": alignment["alignment"],
+        "cost": fixed_costs,
+        "fitness": fitness,
+        "visited_states": alignment["visited_states"],
+        "queued_states": alignment["queued_states"],
+        "traversed_arcs": alignment["traversed_arcs"],
+    }
