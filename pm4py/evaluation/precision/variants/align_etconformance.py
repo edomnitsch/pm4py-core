@@ -1,4 +1,4 @@
-'''
+"""
     This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
 
     PM4Py is free software: you can redistribute it and/or modify
@@ -13,18 +13,29 @@
 
     You should have received a copy of the GNU General Public License
     along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
-'''
+"""
+from multiprocessing import Pool
+from functools import partial
+import multiprocessing
+from typing import List
+from pm4py.objects.log.log import EventLog
 from pm4py.objects import log as log_lib
 from pm4py.evaluation.precision import utils as precision_utils
+from pm4py.evaluation.precision.utils import __search as search
 from pm4py.objects.petri import align_utils as utils
+from pm4py.objects.petri.align_utils import construct_standard_cost_function
+from pm4py.objects.petri.align_utils import SKIP
 from pm4py.objects.petri import check_soundness
 from pm4py.objects.petri.petrinet import Marking
 from pm4py.objects.petri.utils import construct_trace_net
 from pm4py.objects.petri.synchronous_product import construct
 from pm4py.statistics.start_activities.log.get import get_start_activities
-from pm4py.objects.petri.align_utils import get_visible_transitions_eventually_enabled_by_marking
+from pm4py.objects.petri.align_utils import (
+    get_visible_transitions_eventually_enabled_by_marking,
+)
 from pm4py.evaluation.precision.parameters import Parameters
 from pm4py.util import exec_utils
+from pm4py.util.exec_utils import get_param_value
 from pm4py.util import xes_constants
 
 
@@ -52,7 +63,9 @@ def apply(log, net, marking, final_marking, parameters=None):
 
     debug_level = parameters["debug_level"] if "debug_level" in parameters else 0
 
-    activity_key = exec_utils.get_param_value(Parameters.ACTIVITY_KEY, parameters, log_lib.util.xes.DEFAULT_NAME_KEY)
+    activity_key = exec_utils.get_param_value(
+        Parameters.ACTIVITY_KEY, parameters, log_lib.util.xes.DEFAULT_NAME_KEY
+    )
 
     # default value for precision, when no activated transitions (not even by looking at the initial marking) are found
     precision = 1.0
@@ -60,15 +73,25 @@ def apply(log, net, marking, final_marking, parameters=None):
     sum_at = 0
     unfit = 0
 
-    if not check_soundness.check_easy_soundness_net_in_fin_marking(net, marking, final_marking):
-        raise Exception("trying to apply Align-ETConformance on a Petri net that is not a easy sound net!!")
+    if not check_soundness.check_easy_soundness_net_in_fin_marking(
+        net, marking, final_marking
+    ):
+        raise Exception(
+            "trying to apply Align-ETConformance on a Petri net that is not a easy sound net!!"
+        )
 
-    prefixes, prefix_count = precision_utils.get_log_prefixes(log, activity_key=activity_key)
+    prefixes, prefix_count = precision_utils.get_log_prefixes(
+        log, activity_key=activity_key
+    )
     prefixes_keys = list(prefixes.keys())
     fake_log = precision_utils.form_fake_log(prefixes_keys, activity_key=activity_key)
 
-    align_stop_marking = align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameters=parameters)
-    all_markings = transform_markings_from_sync_to_original_net(align_stop_marking, net, parameters=parameters)
+    align_stop_marking = align_fake_log_stop_marking(
+        fake_log, net, marking, final_marking, parameters=parameters
+    )
+    all_markings = transform_markings_from_sync_to_original_net(
+        align_stop_marking, net, parameters=parameters
+    )
 
     for i in range(len(prefixes)):
         markings = all_markings[i]
@@ -80,8 +103,12 @@ def apply(log, net, marking, final_marking, parameters=None):
                 # add to the set of activated transitions in the model the activated transitions
                 # for each prefix
                 activated_transitions_labels = activated_transitions_labels.union(
-                    x.label for x in utils.get_visible_transitions_eventually_enabled_by_marking(net, m) if
-                    x.label is not None)
+                    x.label
+                    for x in utils.get_visible_transitions_eventually_enabled_by_marking(
+                        net, m
+                    )
+                    if x.label is not None
+                )
             escaping_edges = activated_transitions_labels.difference(log_transitions)
 
             sum_at += len(activated_transitions_labels) * prefix_count[prefixes_keys[i]]
@@ -104,7 +131,12 @@ def apply(log, net, marking, final_marking, parameters=None):
 
     # fix: also the empty prefix should be counted!
     start_activities = set(get_start_activities(log, parameters=parameters))
-    trans_en_ini_marking = set([x.label for x in get_visible_transitions_eventually_enabled_by_marking(net, marking)])
+    trans_en_ini_marking = set(
+        [
+            x.label
+            for x in get_visible_transitions_eventually_enabled_by_marking(net, marking)
+        ]
+    )
     diff = trans_en_ini_marking.difference(start_activities)
     sum_at += len(log) * len(trans_en_ini_marking)
     sum_ee += len(log) * len(diff)
@@ -167,6 +199,12 @@ def transform_markings_from_sync_to_original_net(markings0, net, parameters=None
     return markings
 
 
+def wrapper(arguments: List):
+    return search(
+        arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], SKIP
+    )
+
+
 def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameters=None):
     """
     Align the 'fake' log with all the prefixes in order to get the markings in which
@@ -193,20 +231,32 @@ def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameter
     if parameters is None:
         parameters = {}
     align_result = []
-    for i in range(len(fake_log)):
-        trace = fake_log[i]
-        sync_net, sync_initial_marking, sync_final_marking = build_sync_net(trace, net, marking, final_marking,
-                                                                            parameters=parameters)
+    arguments: List = []
+    for trace in fake_log:
+        sync_net, sync_initial_marking, sync_final_marking = build_sync_net(
+            trace, net, marking, final_marking, parameters=parameters
+        )
         stop_marking = Marking()
         for pl, count in sync_final_marking.items():
-            if pl.name[1] == utils.SKIP:
+            if pl.name[1] == SKIP:
                 stop_marking[pl] = count
-        cost_function = utils.construct_standard_cost_function(sync_net, utils.SKIP)
+        cost_function = construct_standard_cost_function(sync_net, SKIP)
+        arguments.append(
+            [
+                sync_net,
+                sync_initial_marking,
+                sync_final_marking,
+                stop_marking,
+                cost_function,
+            ]
+        )
 
-        # perform the alignment of the prefix
-        res = precision_utils.__search(sync_net, sync_initial_marking, sync_final_marking, stop_marking, cost_function,
-                                       utils.SKIP)
+    with Pool(processes=multiprocessing.cpu_count() - 3) as pool:
+        result = pool.map(wrapper, arguments)
+        pool.close()
+        pool.join()
 
+    for res in result:
         if res is not None:
             align_result.append([])
             for mark in res:
@@ -245,14 +295,22 @@ def build_sync_net(trace, petri_net, initial_marking, final_marking, parameters=
     if parameters is None:
         parameters = {}
 
-    activity_key = exec_utils.get_param_value(Parameters.ACTIVITY_KEY, parameters, xes_constants.DEFAULT_NAME_KEY)
+    activity_key = get_param_value(
+        Parameters.ACTIVITY_KEY, parameters, xes_constants.DEFAULT_NAME_KEY
+    )
 
-    trace_net, trace_im, trace_fm = construct_trace_net(trace, activity_key=activity_key)
+    trace_net, trace_im, trace_fm = construct_trace_net(
+        trace, activity_key=activity_key
+    )
 
-    sync_prod, sync_initial_marking, sync_final_marking = construct(trace_net, trace_im,
-                                                                                              trace_fm, petri_net,
-                                                                                              initial_marking,
-                                                                                              final_marking,
-                                                                                              utils.SKIP)
+    sync_prod, sync_initial_marking, sync_final_marking = construct(
+        trace_net,
+        trace_im,
+        trace_fm,
+        petri_net,
+        initial_marking,
+        final_marking,
+        utils.SKIP,
+    )
 
     return sync_prod, sync_initial_marking, sync_final_marking

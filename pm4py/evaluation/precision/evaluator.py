@@ -1,4 +1,4 @@
-'''
+"""
     This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
 
     PM4Py is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@
 
     You should have received a copy of the GNU General Public License
     along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
-'''
+"""
 from pm4py.evaluation.precision.variants import etconformance_token, align_etconformance
 from pm4py.objects.conversion.log import converter as log_conversion
 from pm4py.objects.petri.check_soundness import check_easy_soundness_net_in_fin_marking
@@ -61,15 +61,15 @@ def apply(log, net, marking, final_marking, parameters=None, variant=None):
 
     # execute the following part of code when the variant is not specified by the user
     if variant is None:
-        if not (check_easy_soundness_net_in_fin_marking(
-                net,
-                marking,
-                final_marking)):
+        if not (check_easy_soundness_net_in_fin_marking(net, marking, final_marking)):
             # in the case the net is not a easy sound workflow net, we must apply token-based replay
+            print("DOING FIRST THING")
             variant = ETCONFORMANCE_TOKEN
         else:
+            print("DOING SECOND THING")
             # otherwise, use the align-etconformance approach (safer, in the case the model contains duplicates)
             variant = ALIGN_ETCONFORMANCE
 
-    return exec_utils.get_variant(variant).apply(log, net, marking,
-                             final_marking, parameters=parameters)
+    return exec_utils.get_variant(variant).apply(
+        log, net, marking, final_marking, parameters=parameters
+    )
