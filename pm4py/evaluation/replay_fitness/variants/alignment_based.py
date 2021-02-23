@@ -24,6 +24,7 @@ from pm4py.algo.conformance.alignments.algorithm import (
 )
 from pm4py.algo.conformance.decomp_alignments import algorithm as decomp_alignments
 from pm4py.evaluation.replay_fitness.parameters import Parameters
+from pm4py.objects.log.log import EventLog, Event, Trace
 from pm4py.util import exec_utils
 
 
@@ -68,8 +69,10 @@ def evaluate(aligned_traces, parameters=None):
 
 
 def wrapper(trace, net, initial_marking, final_marking, parameters):
+    log = EventLog()
+    log.append(trace)
     return apply_parallel(
-        trace,
+        log,
         petri_net=net,
         initial_marking=initial_marking,
         final_marking=final_marking,
@@ -127,17 +130,11 @@ def apply(
             parameters=parameters,
         )
         with Pool(processes=pool_size) as pool:
-            alignment_result = pool.map(partial_func, log)
+            results = pool.map(partial_func, log)
             pool.close()
             pool.join()
-        # alignment_result = alignments.apply(
-        #     log,
-        #     petri_net,
-        #     initial_marking,
-        #     final_marking,
-        #     variant=align_variant,
-        #     parameters=parameters,
-        # )
+            alignment_result = [x[0] for x in results]
+
     return evaluate(alignment_result)
 
 
