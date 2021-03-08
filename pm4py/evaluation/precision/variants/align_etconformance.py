@@ -1,30 +1,19 @@
 """
     This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
-
     PM4Py is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
-
     PM4Py is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
-
     You should have received a copy of the GNU General Public License
     along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
 """
-from multiprocessing import Pool
-from functools import partial
-import multiprocessing
-from typing import List
-from pm4py.objects.log.log import EventLog
 from pm4py.objects import log as log_lib
 from pm4py.evaluation.precision import utils as precision_utils
-from pm4py.evaluation.precision.utils import __search as search
 from pm4py.objects.petri import align_utils as utils
-from pm4py.objects.petri.align_utils import construct_standard_cost_function
-from pm4py.objects.petri.align_utils import SKIP
 from pm4py.objects.petri import check_soundness
 from pm4py.objects.petri.petrinet import Marking
 from pm4py.objects.petri.utils import construct_trace_net
@@ -35,14 +24,12 @@ from pm4py.objects.petri.align_utils import (
 )
 from pm4py.evaluation.precision.parameters import Parameters
 from pm4py.util import exec_utils
-from pm4py.util.exec_utils import get_param_value
 from pm4py.util import xes_constants
 
 
 def apply(log, net, marking, final_marking, parameters=None):
     """
     Get Align-ET Conformance precision
-
     Parameters
     ----------
     log
@@ -152,7 +139,6 @@ def transform_markings_from_sync_to_original_net(markings0, net, parameters=None
     """
     Transform the markings of the sync net (in which alignment stops) into markings of the original net
     (in order to measure the precision)
-
     Parameters
     -------------
     markings0
@@ -161,7 +147,6 @@ def transform_markings_from_sync_to_original_net(markings0, net, parameters=None
         Petri net
     parameters
         Parameters of the algorithm
-
     Returns
     -------------
     markings
@@ -199,17 +184,10 @@ def transform_markings_from_sync_to_original_net(markings0, net, parameters=None
     return markings
 
 
-def wrapper(arguments: List):
-    return search(
-        arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], SKIP
-    )
-
-
 def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameters=None):
     """
     Align the 'fake' log with all the prefixes in order to get the markings in which
     the alignment stops
-
     Parameters
     -------------
     fake_log
@@ -222,7 +200,6 @@ def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameter
         Final marking
     parameters
         Parameters of the algorithm
-
     Returns
     -------------
     alignment
@@ -231,32 +208,27 @@ def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameter
     if parameters is None:
         parameters = {}
     align_result = []
-    arguments: List = []
-    for trace in fake_log:
+    for i in range(len(fake_log)):
+        trace = fake_log[i]
         sync_net, sync_initial_marking, sync_final_marking = build_sync_net(
             trace, net, marking, final_marking, parameters=parameters
         )
         stop_marking = Marking()
         for pl, count in sync_final_marking.items():
-            if pl.name[1] == SKIP:
+            if pl.name[1] == utils.SKIP:
                 stop_marking[pl] = count
-        cost_function = construct_standard_cost_function(sync_net, SKIP)
-        arguments.append(
-            [
-                sync_net,
-                sync_initial_marking,
-                sync_final_marking,
-                stop_marking,
-                cost_function,
-            ]
+        cost_function = utils.construct_standard_cost_function(sync_net, utils.SKIP)
+
+        # perform the alignment of the prefix
+        res = precision_utils.__search(
+            sync_net,
+            sync_initial_marking,
+            sync_final_marking,
+            stop_marking,
+            cost_function,
+            utils.SKIP,
         )
 
-    with Pool(processes=multiprocessing.cpu_count() - 3) as pool:
-        result = pool.map(wrapper, arguments)
-        pool.close()
-        pool.join()
-
-    for res in result:
         if res is not None:
             align_result.append([])
             for mark in res:
@@ -278,7 +250,6 @@ def align_fake_log_stop_marking(fake_log, net, marking, final_marking, parameter
 def build_sync_net(trace, petri_net, initial_marking, final_marking, parameters=None):
     """
     Build the sync product net between the Petri net and the trace prefix
-
     Parameters
     ---------------
     trace
@@ -295,7 +266,7 @@ def build_sync_net(trace, petri_net, initial_marking, final_marking, parameters=
     if parameters is None:
         parameters = {}
 
-    activity_key = get_param_value(
+    activity_key = exec_utils.get_param_value(
         Parameters.ACTIVITY_KEY, parameters, xes_constants.DEFAULT_NAME_KEY
     )
 

@@ -1,45 +1,31 @@
 """
     This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
-
     PM4Py is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
-
     PM4Py is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
-
     You should have received a copy of the GNU General Public License
     along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
 """
-from multiprocessing import Pool
-from functools import partial
-import multiprocessing
-from pm4py.algo.conformance.alignments import algorithm as alignments, variants
-from pm4py.algo.conformance.alignments.algorithm import (
-    DEFAULT_VARIANT,
-    apply as apply_parallel,
-)
+from pm4py.algo.conformance.alignments import algorithm as alignments
 from pm4py.algo.conformance.decomp_alignments import algorithm as decomp_alignments
 from pm4py.evaluation.replay_fitness.parameters import Parameters
-from pm4py.objects.log.log import EventLog, Event, Trace
-from pm4py.util import exec_utils
 
 
 def evaluate(aligned_traces, parameters=None):
     """
     Transforms the alignment result to a simple dictionary
     including the percentage of fit traces and the average fitness
-
     Parameters
     ----------
     aligned_traces
         Alignments calculated for the traces in the log
     parameters
         Possible parameters of the evaluation
-
     Returns
     ----------
     dictionary
@@ -65,19 +51,12 @@ def evaluate(aligned_traces, parameters=None):
         perc_fit_traces = (100.0 * float(no_fit_traces)) / (float(no_traces))
         average_fitness = float(sum_fitness) / float(no_traces)
 
-    return {"percFitTraces": perc_fit_traces, "averageFitness": average_fitness}
-
-
-def wrapper(trace, net, initial_marking, final_marking, parameters):
-    log = EventLog()
-    log.append(trace)
-    return apply_parallel(
-        log,
-        petri_net=net,
-        initial_marking=initial_marking,
-        final_marking=final_marking,
-        parameters=parameters,
-    )
+    return {
+        "percFitTraces": perc_fit_traces,
+        "averageFitness": average_fitness,
+        "percentage_of_fitting_traces": perc_fit_traces,
+        "average_trace_fitness": average_fitness,
+    }
 
 
 def apply(
@@ -87,11 +66,9 @@ def apply(
     final_marking,
     align_variant=alignments.DEFAULT_VARIANT,
     parameters=None,
-    pool_size=multiprocessing.cpu_count() - 3,
 ):
     """
     Evaluate fitness based on alignments
-
     Parameters
     ----------------
     log
@@ -106,7 +83,6 @@ def apply(
         Variants of the alignments to apply
     parameters
         Parameters of the algorithm
-
     Returns
     ---------------
     dictionary
@@ -122,19 +98,14 @@ def apply(
             parameters=parameters,
         )
     else:
-        partial_func = partial(
-            wrapper,
-            net=petri_net,
-            initial_marking=initial_marking,
-            final_marking=final_marking,
+        alignment_result = alignments.apply(
+            log,
+            petri_net,
+            initial_marking,
+            final_marking,
+            variant=align_variant,
             parameters=parameters,
         )
-        with Pool(processes=pool_size) as pool:
-            results = pool.map(partial_func, log)
-            pool.close()
-            pool.join()
-            alignment_result = [x[0] for x in results]
-
     return evaluate(alignment_result)
 
 
@@ -145,7 +116,6 @@ def apply_trace(
     Performs the basic alignment search, given a trace, a net and the costs of the \"best of the worst\".
     The costs of the best of the worst allows us to deduce the fitness of the trace.
     We compute the fitness by means of 1 - alignment costs / best of worst costs (i.e. costs of 0 => fitness 1)
-
     Parameters
     ----------
     trace: :class:`list` input trace, assumed to be a list of events (i.e. the code will use the activity key to
@@ -155,7 +125,6 @@ def apply_trace(
     final_marking: :class:`pm4py.objects.petri.net.Marking` final marking in the Petri net
     best_worst: cost of the best worst alignment of a trace (empty trace aligned to the model)
     activity_key: :class:`str` (optional) key to use to identify the activity described by the events
-
     Returns
     -------
     dictionary: `dict` with keys **alignment**, **cost**, **visited_states**, **queued_states** and **traversed_arcs**
