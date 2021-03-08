@@ -1,31 +1,115 @@
-'''
-    This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
-
-    PM4Py is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    PM4Py is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
-'''
-import numpy as np
-from pm4py.util.lp import solver as lp_solver
-from pm4py.objects.petri.petrinet import Marking
-from pm4py.objects.petri import semantics
-from copy import copy
+import heapq
 import sys
+from copy import copy
+from typing import List, Tuple
 
+import numpy as np
 
-SKIP = '>>'
+from pm4py.objects.petri import semantics
+from pm4py.objects.petri.petrinet import Marking, PetriNet
+from pm4py.util.lp import solver as lp_solver
+
+SKIP = ">>"
 STD_MODEL_LOG_MOVE_COST = 10000
 STD_TAU_COST = 1
 STD_SYNC_COST = 0
+
+
+def search_path_among_sol(
+    sync_net: PetriNet,
+    ini: Marking,
+    fin: Marking,
+    activated_transitions: List[PetriNet.Transition],
+    skip=SKIP,
+) -> Tuple[List[PetriNet.Transition], bool, int]:
+    """
+    (Efficient method) Searches a firing sequence among the X vector that is the solution of the
+    (extended) marking equation
+
+    Parameters
+    ---------------
+    sync_net
+        Synchronous product net
+    ini
+        Initial marking of the net
+    fin
+        Final marking of the net
+    activated_transitions
+        Transitions that have non-zero occurrences in the X vector
+    skip
+        Skip transition
+
+    Returns
+    ---------------
+    firing_sequence
+        Firing sequence
+    reach_fm
+        Boolean value that tells if the final marking is reached by the firing sequence
+    explained_events
+        Number of explained events
+    """
+    trans_empty_preset = set(t for t in sync_net.transitions if len(t.in_arcs) == 0)
+    activated_transitions = tuple(sorted(activated_transitions, key=lambda x: x.name))
+    open_set = [(0, 0, 0, activated_transitions, ini, tuple())]
+    heapq.heapify(open_set)
+    firing_sequence = []
+    firing_sequence_explained_events = 0
+    closed = set()
+    count = 0
+    while len(open_set) > 0:
+        curr = heapq.heappop(open_set)
+        explained_events = -curr[0]
+        curr_cost = curr[1]
+        activated_transitions = curr[3]
+        marking = curr[4]
+        visited = curr[5]
+        if not activated_transitions:
+            if marking == fin:
+                return visited, True, explained_events
+        if (activated_transitions, marking) in closed:
+            continue
+        closed.add((activated_transitions, marking))
+        possible_enabling_transitions = copy(trans_empty_preset)
+        for p in marking:
+            for t in p.ass_trans:
+                possible_enabling_transitions.add(t)
+        enabled = set(
+            t for t in possible_enabling_transitions if t.sub_marking <= marking
+        )
+        enabled = enabled.intersection(set(activated_transitions))
+        vis_enabled = set(x for x in enabled if x.label[0] is not skip)
+        if vis_enabled:
+            enabled = vis_enabled
+        if not enabled:
+            if explained_events > firing_sequence_explained_events:
+                firing_sequence = visited
+                firing_sequence_explained_events = explained_events
+        for tr in enabled:
+            count = count + 1
+            this_cost = 1 if tr.label[0] is skip else 0
+            new_trans = list(activated_transitions)
+            idx = new_trans.index(tr)
+            del new_trans[idx]
+            new_trans = tuple(new_trans)
+            new_visited = list(visited)
+            new_visited.append(tr)
+            new_visited = tuple(new_visited)
+            new_marking = semantics.weak_execute(tr, marking)
+            new_explained_events = len(
+                list(x for x in new_visited if x.label[0] is not skip)
+            )
+            heapq.heappush(
+                open_set,
+                (
+                    -new_explained_events,
+                    this_cost + curr_cost,
+                    count,
+                    new_trans,
+                    new_marking,
+                    new_visited,
+                ),
+            )
+    return firing_sequence, False, firing_sequence_explained_events
 
 
 def construct_standard_cost_function(synchronous_product_net, skip):
@@ -41,7 +125,9 @@ def construct_standard_cost_function(synchronous_product_net, skip):
     """
     costs = {}
     for t in synchronous_product_net.transitions:
-        if (skip == t.label[0] or skip == t.label[1]) and (t.label[0] is not None and t.label[1] is not None):
+        if (skip == t.label[0] or skip == t.label[1]) and (
+            t.label[0] is not None and t.label[1] is not None
+        ):
             costs[t] = STD_MODEL_LOG_MOVE_COST
         else:
             if skip == t.label[0] and t.label[1] is None:
@@ -87,12 +173,12 @@ def __print_single_alignment(step_list):
                     trace_steps[i] = trace_steps[i] + " "
                 else:
                     trace_steps[i] = " " + trace_steps[i]
-        print(trace_steps[i], end='|')
+        print(trace_steps[i], end="|")
     divider = ""
     length_divider = len(trace_steps) * (max_label_length + 3)
     for i in range(length_divider):
         divider += "-"
-    print('\n' + divider)
+    print("\n" + divider)
     for i in range(len(model_steps)):
         if len(model_steps[i]) - 2 < max_label_length:
             step_length = len(model_steps[i]) - 2
@@ -103,8 +189,8 @@ def __print_single_alignment(step_list):
                 else:
                     model_steps[i] = " " + model_steps[i]
 
-        print(model_steps[i], end='|')
-    print('\n\n')
+        print(model_steps[i], end="|")
+    print("\n\n")
 
 
 def add_markings(curr, add):
@@ -124,7 +210,9 @@ def __get_alt(open_set, new_marking):
             return item
 
 
-def __reconstruct_alignment(state, visited, queued, traversed, ret_tuple_as_trans_desc=False, lp_solved = 0):
+def __reconstruct_alignment(
+    state, visited, queued, traversed, ret_tuple_as_trans_desc=False, lp_solved=0
+):
     parent = state.p
     if ret_tuple_as_trans_desc:
         alignment = [(state.t.name, state.t.label)]
@@ -136,8 +224,14 @@ def __reconstruct_alignment(state, visited, queued, traversed, ret_tuple_as_tran
         while parent.p is not None:
             alignment = [parent.t.label] + alignment
             parent = parent.p
-    return {'alignment': alignment, 'cost': state.g, 'visited_states': visited, 'queued_states': queued,
-            'traversed_arcs': traversed, 'lp_solved': lp_solved}
+    return {
+        "alignment": alignment,
+        "cost": state.g,
+        "visited_states": visited,
+        "queued_states": queued,
+        "traversed_arcs": traversed,
+        "lp_solved": lp_solved,
+    }
 
 
 def __derive_heuristic(incidence_matrix, cost_vec, x, t, h):
@@ -161,8 +255,18 @@ def __trust_solution(x):
     return True
 
 
-def __compute_exact_heuristic_new_version(sync_net, a_matrix, h_cvx, g_matrix, cost_vec, incidence_matrix,
-                                          marking, fin_vec, variant, use_cvxopt=False):
+def __compute_exact_heuristic_new_version(
+    sync_net,
+    a_matrix,
+    h_cvx,
+    g_matrix,
+    cost_vec,
+    incidence_matrix,
+    marking,
+    fin_vec,
+    variant,
+    use_cvxopt=False,
+):
     m_vec = incidence_matrix.encode_marking(marking)
     b_term = [i - j for i, j in zip(fin_vec, m_vec)]
     b_term = np.matrix([x * 1.0 for x in b_term]).transpose()
@@ -175,8 +279,15 @@ def __compute_exact_heuristic_new_version(sync_net, a_matrix, h_cvx, g_matrix, c
 
     parameters_solving = {"solver": "glpk"}
 
-    sol = lp_solver.apply(cost_vec, g_matrix, h_cvx, a_matrix, b_term, parameters=parameters_solving,
-                                  variant=variant)
+    sol = lp_solver.apply(
+        cost_vec,
+        g_matrix,
+        h_cvx,
+        a_matrix,
+        b_term,
+        parameters=parameters_solving,
+        variant=variant,
+    )
     prim_obj = lp_solver.get_prim_obj_from_sol(sol, variant=variant)
     points = lp_solver.get_points_from_sol(sol, variant=variant)
 
@@ -232,8 +343,13 @@ class SearchTuple:
         return ret
 
     def __repr__(self):
-        string_build = ["\nm=" + str(self.m), " f=" + str(self.f), ' g=' + str(self.g), " h=" + str(self.h),
-                        " path=" + str(self.__get_firing_sequence()) + "\n\n"]
+        string_build = [
+            "\nm=" + str(self.m),
+            " f=" + str(self.f),
+            " g=" + str(self.g),
+            " h=" + str(self.h),
+            " path=" + str(self.__get_firing_sequence()) + "\n\n",
+        ]
         return " ".join(string_build)
 
 
@@ -262,8 +378,55 @@ class DijkstraSearchTuple:
         return ret
 
     def __repr__(self):
-        string_build = ["\nm=" + str(self.m), " g=" + str(self.g),
-                        " path=" + str(self.__get_firing_sequence()) + "\n\n"]
+        string_build = [
+            "\nm=" + str(self.m),
+            " g=" + str(self.g),
+            " path=" + str(self.__get_firing_sequence()) + "\n\n",
+        ]
+        return " ".join(string_build)
+
+
+class TweakedSearchTuple:
+    def __init__(self, f, g, h, m, p, t, x, trust, virgin):
+        self.f = f
+        self.g = g
+        self.h = h
+        self.m = m
+        self.p = p
+        self.t = t
+        self.x = x
+        self.trust = trust
+        # a virgin status must be explored in its firing sequence
+        self.virgin = virgin
+
+    def __lt__(self, other):
+        if self.f < other.f:
+            return True
+        elif other.f < self.f:
+            return False
+        elif self.virgin and not other.virgin:
+            return True
+        elif self.trust and not other.trust:
+            return True
+        else:
+            return self.h < other.h
+
+    def __get_firing_sequence(self):
+        ret = []
+        if self.p is not None:
+            ret = ret + self.p.__get_firing_sequence()
+        if self.t is not None:
+            ret.append(self.t)
+        return ret
+
+    def __repr__(self):
+        string_build = [
+            "\nm=" + str(self.m),
+            " f=" + str(self.f),
+            " g=" + str(self.g),
+            " h=" + str(self.h),
+            " path=" + str(self.__get_firing_sequence()) + "\n\n",
+        ]
         return " ".join(string_build)
 
 
@@ -277,7 +440,7 @@ def get_visible_transitions_eventually_enabled_by_marking(net, marking):
     marking
         Current marking
     """
-    all_enabled_transitions = list(semantics.enabled_transitions(net, marking))
+    all_enabled_transitions = sorted(list(semantics.enabled_transitions(net, marking)))
     initial_all_enabled_transitions_marking_dictio = {}
     all_enabled_transitions_marking_dictio = {}
     for trans in all_enabled_transitions:
@@ -297,7 +460,9 @@ def get_visible_transitions_eventually_enabled_by_marking(net, marking):
             else:
                 if semantics.is_enabled(t, net, marking_copy):
                     new_marking = semantics.execute(t, net, marking_copy)
-                    new_enabled_transitions = list(semantics.enabled_transitions(net, new_marking))
+                    new_enabled_transitions = sorted(
+                        list(semantics.enabled_transitions(net, new_marking))
+                    )
                     for t2 in new_enabled_transitions:
                         all_enabled_transitions.append(t2)
                         all_enabled_transitions_marking_dictio[t2] = new_marking

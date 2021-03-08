@@ -1,24 +1,7 @@
-'''
-    This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
-
-    PM4Py is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    PM4Py is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
-'''
 from pm4py.objects.process_tree import pt_operator
 
 
 class ProcessTree(object):
-
     def __init__(self, operator=None, parent=None, children=None, label=None):
         """
         Constructor
@@ -111,22 +94,31 @@ class ProcessTree(object):
             String representation of the process tree
         """
         if self.operator is not None:
-            rep = str(self._operator) + '( '
+            rep = str(self._operator) + "( "
             for i in range(0, len(self._children)):
                 child = self._children[i]
                 if len(child.children) == 0:
                     if child.label is not None:
-                        rep += '\'' + str(child) + '\'' + ', ' if i < len(self._children) - 1 else '\'' + str(
-                            child) + '\''
+                        rep += (
+                            "'" + str(child) + "'" + ", "
+                            if i < len(self._children) - 1
+                            else "'" + str(child) + "'"
+                        )
                     else:
-                        rep += str(child) + ', ' if i < len(self._children) - 1 else str(child)
+                        rep += (
+                            str(child) + ", "
+                            if i < len(self._children) - 1
+                            else str(child)
+                        )
                 else:
-                    rep += str(child) + ', ' if i < len(self._children) - 1 else str(child)
-            return rep + ' )'
+                    rep += (
+                        str(child) + ", " if i < len(self._children) - 1 else str(child)
+                    )
+            return rep + " )"
         elif self.label is not None:
             return self.label
         else:
-            return u'\u03c4'
+            return "*tau*"
 
     def __str__(self):
         """
@@ -138,6 +130,10 @@ class ProcessTree(object):
             String representation of the process tree
         """
         return self.__repr__()
+
+    def __lt__(self, other):
+        # dummy method for now, to not break Daniel's code
+        return id(self) < id(other)
 
     def _get_root(self):
         root = self

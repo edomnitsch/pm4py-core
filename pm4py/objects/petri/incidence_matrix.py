@@ -1,23 +1,10 @@
-'''
-    This file is part of PM4Py (More Info: https://pm4py.fit.fraunhofer.de).
-
-    PM4Py is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    PM4Py is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with PM4Py.  If not, see <https://www.gnu.org/licenses/>.
-'''
 class IncidenceMatrix(object):
-
     def __init__(self, net):
-        self.__A, self.__place_indices, self.__transition_indices = self.__construct_matrix(net)
+        (
+            self.__A,
+            self.__place_indices,
+            self.__transition_indices,
+        ) = self.__construct_matrix(net)
 
     def encode_marking(self, marking):
         x = [0 for i in range(len(self.places))]
@@ -37,6 +24,7 @@ class IncidenceMatrix(object):
     def __construct_matrix(self, net):
         self.matrix_built = True
         p_index, t_index = {}, {}
+
         for p in net.places:
             p_index[p] = len(p_index)
         for t in net.transitions:
