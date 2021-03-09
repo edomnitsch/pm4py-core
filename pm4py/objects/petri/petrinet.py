@@ -110,9 +110,15 @@ class PetriNet(object):
             if type(other) is PetriNet.Transition:
                 return True
             elif type(other) is PetriNet.Place:
-                return (self.name, id(self)) < (other.name, id(other))
+                try:
+                    return (self.name, id(self)) < (other.name, id(other))
+                except TypeError:
+                    return False
             else:
                 return False
+
+        def __gt__(self, other):
+            return not self.__lt__(other)
 
         def __deepcopy__(self, memodict={}):
             if id(self) in memodict:
@@ -180,9 +186,15 @@ class PetriNet(object):
         def __lt__(self, other):
             # in order to ensure the possibility to use sorted containers within the same Petri net
             if type(other) is PetriNet.Transition:
-                return (self.name, id(self)) < (other.name, id(other))
+                try:
+                    return (self.name, id(self)) < (other.name, id(other))
+                except TypeError:
+                    return False
             else:
                 return False
+
+        def __gt__(self, other):
+            return not self.__lt__(other)
 
         def __deepcopy__(self, memodict={}):
             if id(self) in memodict:
@@ -238,6 +250,9 @@ class PetriNet(object):
         def __lt__(self, other):
             # in order to ensure the possibility to use sorted containers within the same Petri net
             return (self.source, self.target) < (other.source, other.target)
+
+        def __gt__(self, other):
+            return not self.__lt__(other)
 
         def __deepcopy__(self, memodict={}):
             if id(self) in memodict:
